@@ -3,20 +3,6 @@ set -euo pipefail
 
 # Linux Gamer Life openSUSE Bootstrap (TTY friendly)
 # Goal: Start from openSUSE minimal server (TTY), run once, reboot into KDE Plasma.
-#
-# Installs and configures:
-# - KDE Plasma + SDDM
-# - Packman repo + vendor switch for full codecs (FFmpeg and friends)
-# - Core tools: curl, wget, git, fastfetch, btop, htop, python3, pip
-# - Flatpak + Flathub + Flatseal + common apps
-# - Distrobox
-# - Multimedia stack + AMD bits (Mesa, Vulkan, VA-API, GStreamer)
-# - Gaming: Steam, Lutris, MangoHud, OBS Studio (with Flatpak fallbacks where sensible)
-# - Virtualization: virt-manager + libvirt/KVM stack
-#
-# Notes:
-# - This script tries to work on both openSUSE Tumbleweed and Leap.
-# - If a package name differs on your release, the script will warn and continue.
 
 # -----------------------------
 # Colours (LGL style)
@@ -56,10 +42,12 @@ zypper_refresh() {
 }
 
 try_install() {
-  # Install packages one-by-one so a missing package does not kill the whole script.
+  # Install packages one-by-one so missing packages do not kill the whole script.
+  # Output is NOT suppressed so you see progress.
   local pkg
   for pkg in "$@"; do
-    if zypper -n in -y "$pkg" >/dev/null 2>&1; then
+    section "Installing: $pkg"
+    if zypper -n in -y "$pkg"; then
       info "Installed: $pkg"
     else
       warn "Could not install: $pkg (skipping)"
@@ -83,11 +71,13 @@ add_repo_if_missing() {
     return 0
   fi
 
-  info "Adding repo: $name"
-  zypper -n ar -f -p "$priority" -n "$name" "$url" "$alias" >/dev/null 2>&1 || {
-    warn "Failed to add repo: $alias"
+  section "Adding repo: $name"
+  if zypper -n ar -f -p "$priority" -n "$name" "$url" "$alias"; then
+    info "Added repo: $alias"
+  else
+    warn "Failed to add repo: $alias (continuing)"
     return 1
-  }
+  fi
 }
 
 detect_opensuse() {
@@ -111,17 +101,13 @@ detect_opensuse() {
 }
 
 setup_official_repos() {
-  # Many minimal installs already have repos. This only adds missing common repos.
-  # URLs below follow the official openSUSE structure.
-
   if [[ "$OS_ID" == "opensuse-tumbleweed" ]]; then
     add_repo_if_missing "repo-oss" "openSUSE-Tumbleweed-Oss" "https://download.opensuse.org/tumbleweed/repo/oss/" 99 || true
     add_repo_if_missing "repo-non-oss" "openSUSE-Tumbleweed-Non-Oss" "https://download.opensuse.org/tumbleweed/repo/non-oss/" 99 || true
     add_repo_if_missing "repo-update" "openSUSE-Tumbleweed-Update" "https://download.opensuse.org/update/tumbleweed/" 99 || true
     add_repo_if_missing "repo-update-non-oss" "openSUSE-Tumbleweed-Update-Non-Oss" "https://download.opensuse.org/update/tumbleweed-non-oss/" 99 || true
   else
-    # Leap
-    if [[ -z "$OS_VERSION_ID" ]]; then
+    if [[ -z "${OS_VERSION_ID:-}" ]]; then
       warn "VERSION_ID is empty, cannot build Leap repo URLs"
       return 0
     fi
@@ -141,7 +127,7 @@ setup_packman() {
   if [[ "$OS_ID" == "opensuse-tumbleweed" ]]; then
     packman_url="https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/"
   else
-    if [[ -z "$OS_VERSION_ID" ]]; then
+    if [[ -z "${OS_VERSION_ID:-}" ]]; then
       warn "VERSION_ID is empty, skipping Packman setup"
       return 0
     fi
@@ -151,17 +137,11 @@ setup_packman() {
   add_repo_if_missing "packman" "Packman Repository" "$packman_url" 90 || true
   zypper_refresh
 
-  # Vendor switch is the standard way to get full multimedia support from Packman.
-  # On Tumbleweed this is commonly done with dup.
   if [[ "$OS_ID" == "opensuse-tumbleweed" ]]; then
-    if zypper -n dup --from packman --allow-vendor-change >/dev/null 2>&1; then
-      info "Packman vendor switch complete"
-    else
-      warn "Packman vendor switch failed (continuing)"
-    fi
+    section "Vendor switch to Packman (Tumbleweed)"
+    zypper -n dup --from packman --allow-vendor-change || warn "Packman vendor switch failed (continuing)"
   else
-    # Leap: safer to just allow vendor change during install of the key multimedia packages.
-    info "Leap detected: will prefer Packman when installing multimedia packages"
+    info "Leap detected: will allow vendor changes during multimedia installs"
   fi
 }
 
@@ -174,37 +154,26 @@ info "Target user: ${TARGET_USER}"
 detect_opensuse
 
 # -----------------------------
-# 1) Base update and core tools
+# Refresh repos (no full system update)
 # -----------------------------
-section "Base update and core tools"
-
+section "Refresh repos (no system update)"
 setup_official_repos
 
-# Update system
-if [[ "$OS_ID" == "opensuse-tumbleweed" ]]; then
-  zypper -n dup || true
-else
-  zypper -n up || true
-fi
-
-try_install \
-  curl wget git \
-  fastfetch btop htop \
-  python3 python3-pip \
-  flatpak \
-  distrobox \
-  vlc
+# -----------------------------
+# Base tools
+# -----------------------------
+section "Base tools"
+try_install curl wget git fastfetch btop htop python3 python3-pip flatpak distrobox vlc
 
 # -----------------------------
-# 2) Packman codecs
+# Packman + Multimedia
 # -----------------------------
 setup_packman
 
-# Key multimedia packages with Packman preference
-# (Names can vary slightly by release, so we install what we can.)
+section "Multimedia (FFmpeg + GStreamer)"
 if [[ "$OS_ID" == "opensuse-leap" ]]; then
-  # Allow vendor change on Leap when pulling in multimedia bits
-  zypper -n in -y --allow-vendor-change ffmpeg || warn "Could not install ffmpeg (skipping)"
+  section "Installing: ffmpeg (allow vendor change)"
+  zypper -n in -y --allow-vendor-change ffmpeg || warn "Could not install: ffmpeg (skipping)"
 else
   try_install ffmpeg
 fi
@@ -218,98 +187,120 @@ try_install \
   gstreamer-plugins-libav
 
 # -----------------------------
-# 3) KDE Plasma (minimal-ish)
+# KDE Plasma + SDDM
 # -----------------------------
 section "KDE Plasma and SDDM"
 
-# Pattern is the most reliable way on openSUSE, but it can be larger than Arch minimal.
-# We attempt the pattern first, then fall back to individual packages if needed.
-if zypper -n in -t pattern -y kde_plasma >/dev/null 2>&1; then
+section "Installing pattern: kde_plasma"
+if zypper -n in -y -t pattern kde_plasma; then
   info "Installed pattern: kde_plasma"
 else
   warn "Pattern kde_plasma not available, installing core KDE packages instead"
-  try_install \
-    sddm \
-    plasma5-session plasma5-desktop \
-    konsole spectacle ark okular gwenview \
-    discover discover6
+  try_install sddm konsole spectacle ark okular gwenview discover discover6
 fi
 
+try_install \
+  discover6
+
 # -----------------------------
-# 4) Multimedia and AMD stack
+# AMD / Mesa stack (UPDATED for openSUSE names)
 # -----------------------------
-section "Multimedia and AMD drivers"
+section "AMD graphics stack"
 
 try_install \
   Mesa Mesa-dri \
-  Mesa-vulkan-radeon \
   libvulkan1 vulkan-tools \
-  libva libva-utils \
-  libva-mesa-driver
+  libva2 libva-utils \
+  Mesa-libva
+
+# Vulkan ICD for AMD (install if available in your repos)
+try_install Mesa-vulkan-radeon
 
 # -----------------------------
-# 5) Gaming tools
+# Gaming tools
 # -----------------------------
 section "Gaming tools"
-
-# Steam often needs non-oss enabled (handled earlier). Install what we can.
 try_install steam lutris mangohud obs-studio
 
 # -----------------------------
-# 6) Flatpak apps
+# Flatpak apps
 # -----------------------------
 section "Flatpak apps"
 
-# Ensure Flatpak service bits exist
 if ! have_cmd flatpak; then
-  warn "flatpak command not found even after install attempt (skipping Flatpak section)"
+  warn "flatpak command not found (skipping Flatpak section)"
 else
   flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || true
 
-  # Apps matching your Arch script intent
+  section "Flatpak: Flatseal"
   flatpak install -y flathub com.github.tchx84.Flatseal || true
+
+  section "Flatpak: ProtonUp-Qt"
   flatpak install -y flathub net.davidotek.pupgui2 || true
+
+  section "Flatpak: ProtonPlus"
   flatpak install -y flathub com.vysp3r.ProtonPlus || true
+
+  section "Flatpak: Heroic"
   flatpak install -y flathub com.heroicgameslauncher.hgl || true
+
+  section "Flatpak: LibreOffice"
   flatpak install -y flathub org.libreoffice.LibreOffice || true
 
-  # Useful fallbacks if RPM packages were missing
+  # Fallbacks if RPMs were missing
+  section "Flatpak fallback: Lutris"
   flatpak install -y flathub net.lutris.Lutris || true
+
+  section "Flatpak fallback: OBS Studio"
   flatpak install -y flathub com.obsproject.Studio || true
 fi
 
 # -----------------------------
-# 7) Virtualization
+# Virtualization
 # -----------------------------
 section "Virtualization"
+try_install virt-manager qemu qemu-kvm libvirt libvirt-client virt-install virt-viewer ovmf swtpm
 
-try_install \
-  virt-manager \
-  qemu qemu-kvm \
-  libvirt libvirt-client \
-  virt-install virt-viewer \
-  ovmf swtpm
-
-# Enable libvirt
 systemctl enable --now libvirtd || true
-
-# Add user to groups (names can differ slightly, so we try both common ones)
 usermod -aG libvirt "${TARGET_USER}" 2>/dev/null || true
 usermod -aG kvm "${TARGET_USER}" 2>/dev/null || true
 
 # -----------------------------
-# 8) Boot target and display manager
+# Dev tools (Python + pipx)
+# -----------------------------
+section "Dev tools"
+
+try_install \
+  python3 \
+  python3-pip \
+  python3-virtualenv \
+  python3-pipx
+
+section "Configuring pipx for user: ${TARGET_USER}"
+sudo -u "${TARGET_USER}" python3 -m pipx ensurepath || true
+
+section "Installing pipx tools"
+sudo -u "${TARGET_USER}" python3 -m pipx install yt-dlp || true
+sudo -u "${TARGET_USER}" python3 -m pipx install tldr || true
+
+section "Quick verification"
+sudo -u "${TARGET_USER}" bash -lc '~/.local/bin/yt-dlp --version' || true
+sudo -u "${TARGET_USER}" bash -lc '~/.local/bin/tldr --version' || true
+
+
+# -----------------------------
+# Boot target
 # -----------------------------
 section "Boot configuration"
 
 systemctl set-default graphical.target || true
-systemctl enable sddm || true
+echo 'DISPLAYMANAGER="sddm"' > /etc/sysconfig/displaymanager
+systemctl enable display-manager.service || true
 
 # -----------------------------
 # Finish
 # -----------------------------
 section "Complete"
-
 info "Bootstrap finished"
 info "Reboot to start KDE Plasma:"
 cmdhint "reboot"
