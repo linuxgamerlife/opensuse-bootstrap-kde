@@ -18,7 +18,7 @@ End result after running the script:
 
 - KDE Plasma desktop with SDDM
 - Gaming tools including Steam, Lutris, MangoHud, OBS Studio
-- Full multimedia support with Packman codecs and FFmpeg
+- Full multimedia support with codecs and FFmpeg
 - Flatpak with Flathub configured
 - Virtualization stack with virt-manager and libvirt
 - Python development tools with pipx, yt-dlp, and tldr
@@ -99,7 +99,7 @@ reboot
 
 ### Multimedia Support
 
-Configured via Packman repository:
+Configured via repository:
 
 - FFmpeg
 - GStreamer plugins (base, good, bad, ugly, libav)
