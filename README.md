@@ -10,6 +10,7 @@ It is designed to be run once from TTY after installing openSUSE using the net i
 
 Starting point:
 
+
 - openSUSE installed using the **Net Installer**
 - **Server pattern selected**
 - Booted into **TTY (no desktop environment)**
