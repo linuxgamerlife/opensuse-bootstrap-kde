@@ -4,7 +4,7 @@ This script converts a minimal openSUSE Server installation into a complete Linu
 
 It is designed to be run once from TTY after installing openSUSE using the net installer.
 
----
+----
 
 ## Overview
 
